@@ -16,6 +16,10 @@ export default function ChatPage() {
   const bottomRef = useRef<HTMLDivElement>(null)
   const [showSavedToast, setShowSavedToast] = useState(false)
 
+  useEffect(() => {
+    fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/health`).catch(() => {})
+  }, [])
+
   // auto end-session on tab close
   useEffect(() => {
     const handleUnload = () => {
