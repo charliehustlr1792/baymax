@@ -17,6 +17,7 @@ from rag.retriever import retrieve_exemplars
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_db()
+    print("EchoMind backend started — DB ready")
     yield
 
 
@@ -24,7 +25,10 @@ app = FastAPI(lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=[
+        "http://localhost:3000",
+        "https://your-frontend-domain.vercel.app",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -49,7 +53,12 @@ class EndSessionRequest(BaseModel):
 
 @app.get("/")
 def root():
-    return {"status": "EchoMind backend running"}
+    return {"status": "EchoMind backend running", "version": "1.0.0"}
+
+
+@app.get("/health")
+def health():
+    return {"status": "ok"}
 
 
 @app.post("/chat")
@@ -97,13 +106,21 @@ async def chat(request: ChatRequest):
         session.add_turn("assistant", full_response)
         yield f"data: {json.dumps({'done': True})}\n\n"
 
-    return StreamingResponse(stream(), media_type="text/event-stream")
+    return StreamingResponse(
+        stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        }
+    )
 
 
 @app.post("/end-session")
 async def end_session(request: EndSessionRequest):
     session = get_session(request.session_id)
 
+    turns_saved = 0
     if len(session.turns) >= 2:
         await write_session_memory(
             user_id=request.user_id,
@@ -111,9 +128,10 @@ async def end_session(request: EndSessionRequest):
             turns=session.turns,
             entities=session.entities,
         )
+        turns_saved = len(session.turns)
 
     clear_session(request.session_id)
-    return {"status": "session ended", "turns_saved": len(session.turns)}
+    return {"status": "session ended", "turns_saved": turns_saved}
 
 
 @app.get("/memory/{user_id}")

@@ -2,6 +2,8 @@ import os
 from groq import AsyncGroq
 from dotenv import load_dotenv
 from typing import AsyncGenerator
+from quality import check_quality
+from safety import detect_safety_tier_llm, get_safety_instruction
 
 load_dotenv()
 
@@ -40,41 +42,14 @@ ENTITY REGISTER (people and context in this conversation):
 RETRIEVED TECHNIQUE GUIDANCE (shapes HOW you respond, not WHAT you say):
 {exemplars}
 
+{safety_instruction}
+
 CONVERSATION HISTORY:
 {history}
 
 USER'S LATEST MESSAGE: "{user_message}"
 
 Write your response now. Be specific. Be human. No templates."""
-
-BANNED_PHRASES = [
-    "i hear you",
-    "that sounds really hard",
-    "i'm sorry to hear that",
-    "it sounds like you're going through",
-    "that must be difficult",
-    "i understand how you feel",
-    "you're not alone",
-    "it's okay to feel this way",
-    "i can imagine how",
-    "that's completely understandable",
-    "thank you for sharing",
-    "thank you for trusting",
-    "i'm here for you",
-    "your feelings are valid",
-    "it's okay to",
-    "safe space",
-    "on your journey",
-    "the healing",
-    "that resonates",
-    "you are valid",
-    "so valid",
-]
-
-
-def contains_banned_phrase(text: str) -> bool:
-    lower = text.lower()
-    return any(phrase in lower for phrase in BANNED_PHRASES)
 
 
 async def run_generation(
@@ -88,8 +63,11 @@ async def run_generation(
 ) -> AsyncGenerator[str, None]:
 
     if attempt >= 3:
-        yield "Something about what you said is hard to step past — what's been sitting with you most today?"
+        yield "Something about what you said is staying with me — what's been sitting with you most today?"
         return
+
+    safety_tier = await detect_safety_tier_llm(user_message, scratchpad)
+    safety_instruction = get_safety_instruction(safety_tier)
 
     history_text = "\n".join(
         f"{m['role'].upper()}: {m['content']}"
@@ -101,6 +79,7 @@ async def run_generation(
         memory=memory if memory else "No previous session data.",
         entities=entities if entities else "No entities tracked yet.",
         exemplars=exemplars if exemplars else "No exemplars retrieved.",
+        safety_instruction=safety_instruction,
         history=history_text if history_text else "This is the first message.",
         user_message=user_message
     )
@@ -114,7 +93,7 @@ async def run_generation(
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": user_turn}
         ],
-        max_tokens=300,
+        max_tokens=350,
         temperature=0.75,
         stream=True,
     )
@@ -125,7 +104,10 @@ async def run_generation(
             collected_tokens.append(token)
             full_response += token
 
-    if contains_banned_phrase(full_response):
+    passed, reason = check_quality(full_response)
+
+    if not passed:
+        print(f"Quality gate failed (attempt {attempt + 1}): {reason}")
         async for token in run_generation(
             user_message, history, scratchpad,
             memory, entities, exemplars, attempt + 1
