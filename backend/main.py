@@ -11,6 +11,7 @@ from generation import run_generation
 from context_assembly import assemble_context, update_entity_register
 from memory.session import get_session, clear_session
 from memory.crosssession import init_db, write_session_memory
+from rag.retriever import retrieve_exemplars
 
 
 @asynccontextmanager
@@ -73,6 +74,12 @@ async def chat(request: ChatRequest):
         turn_number=len(session.turns)
     )
 
+    exemplars = retrieve_exemplars(
+        query=user_message,
+        scratchpad=scratchpad,
+        n_results=3,
+    )
+
     async def stream():
         full_response = ""
 
@@ -82,6 +89,7 @@ async def chat(request: ChatRequest):
             scratchpad=scratchpad,
             memory=context["memory"],
             entities=context["entities"],
+            exemplars=exemplars,
         ):
             full_response += token
             yield f"data: {json.dumps({'token': token})}\n\n"
