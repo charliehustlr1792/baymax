@@ -1,4 +1,5 @@
 import type { Message } from '@/lib/api'
+import BaymaxAvatar from '@/components/BaymaxAvatar'
 
 type MessageBubbleProps = {
 	message: Message
@@ -14,25 +15,25 @@ export default function MessageBubble({
 	return (
 		<div
 			className={[
-				'flex w-full items-end gap-2',
+				'animate-rise flex w-full items-end gap-3',
 				isUser ? 'justify-end' : 'justify-start',
 			].join(' ')}
 		>
 			{!isUser && (
-				<div className="h-7 w-7 shrink-0 rounded-full border border-[#CC0000] bg-white" />
+				<BaymaxAvatar className="h-10 w-10 shrink-0 border border-[var(--border)]" />
 			)}
 
 			<div
 				className={[
-					'max-w-[85%] whitespace-pre-wrap px-5 py-3 text-[15px] leading-7 shadow-sm sm:max-w-[72%]',
+					'max-w-[88%] whitespace-pre-wrap px-5 py-4 text-[15px] leading-7 shadow-[0_18px_42px_rgba(67,92,97,0.08)] backdrop-blur-sm sm:max-w-[72%]',
 					isUser
-						? 'rounded-[999px] rounded-br-2xl bg-[#CC0000] text-white'
-						: 'rounded-4xl rounded-bl-2xl border border-[#E0E0E0] bg-white text-[#1A1A1A]',
+						? 'rounded-[30px] rounded-br-[12px] bg-[linear-gradient(135deg,#baa48c_0%,#9e866f_100%)] text-white'
+						: 'rounded-[30px] rounded-bl-[12px] border border-[var(--border)] bg-[var(--surface-strong)] text-[var(--foreground)]',
 				].join(' ')}
 			>
 				{message.content}
 				{showStreamingCursor && (
-					<span className="ml-1 inline-block h-5 w-0.75 animate-pulse rounded-full bg-[#CC0000] align-middle" />
+					<span className="ml-1 inline-block h-5 w-0.5 animate-pulse rounded-full bg-[var(--accent-strong)] align-middle" />
 				)}
 			</div>
 		</div>
