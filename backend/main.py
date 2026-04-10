@@ -18,17 +18,21 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
 class Message(BaseModel):
     role: str
     content: str
+
 
 class ChatRequest(BaseModel):
     session_id: str
     messages: List[Message]
 
+
 @app.get("/")
 def root():
     return {"status": "EchoMind backend running"}
+
 
 @app.post("/chat")
 async def chat(request: ChatRequest):
@@ -38,8 +42,12 @@ async def chat(request: ChatRequest):
     scratchpad = await run_scratchpad(user_message, history)
 
     async def stream():
-        async for token in run_generation(user_message, history, scratchpad):
+        async for token in run_generation(
+            user_message=user_message,
+            history=history,
+            scratchpad=scratchpad,
+        ):
             yield f"data: {json.dumps({'token': token})}\n\n"
-        yield f"data: {json.dumps({'done': True, 'scratchpad': scratchpad})}\n\n"
+        yield f"data: {json.dumps({'done': True})}\n\n"
 
     return StreamingResponse(stream(), media_type="text/event-stream")

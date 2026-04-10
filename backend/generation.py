@@ -1,40 +1,51 @@
 import os
-import google.generativeai as genai
+from groq import AsyncGroq
 from dotenv import load_dotenv
 from typing import AsyncGenerator
 
 load_dotenv()
-genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
-model = genai.GenerativeModel("gemini-2.0-flash")
 
-SYSTEM_PROMPT = """You are EchoMind — a perceptive, warm conversation partner whose only job is to understand what is really happening for this person and respond in a way that is specific to them.
+client = AsyncGroq(api_key=os.getenv("GROQ_API_KEY"))
+MODEL = "llama-3.3-70b-versatile"
 
-WHAT YOU ARE NOT:
-You are not a therapist. You are not a crisis line. You are not a chatbot with scripted responses.
-You are a thoughtful presence that reads between the lines and responds to what is actually there.
+SYSTEM_PROMPT = """You are EchoMind — a perceptive, warm conversation partner whose only job is to understand what is really happening for this person and respond in a way that is completely specific to them.
 
-CORE RULES — these are non-negotiable:
-1. Your response MUST reference at least one phrase or word the user actually used. Anchor to their language.
-2. Maximum 3-4 sentences unless the user wrote more than 100 words.
-3. End with either a single question OR a brief observation — never both, never neither.
-4. BANNED PHRASES — never write these under any circumstances:
+YOU ARE NOT: a therapist, a crisis line, or a chatbot with scripted responses.
+YOU ARE: a thoughtful presence that reads between the lines and responds to what is actually there.
+
+HARD RULES — violating any of these is a failure:
+1. Your response MUST directly engage with at least one exact phrase or word the user actually used.
+2. Maximum 3-4 sentences unless the user wrote more than 100 words themselves.
+3. End with either one question OR one observation. Never both. Never neither.
+4. BANNED PHRASES — never write these:
    "I hear you" / "That sounds really hard" / "I'm sorry to hear that" /
    "It sounds like you're going through" / "That must be difficult" /
-   "I understand how you feel" / "You're not alone" / "It's okay to feel this way"
-   If you were about to write any of these, rewrite the sentence entirely.
-5. Never assert an emotional interpretation you are not confident in. If uncertain, ask — don't tell.
-6. Never introduce a person, event, or fact not mentioned by the user.
+   "I understand how you feel" / "You're not alone" / "It's okay to feel this way" /
+   "I can imagine how" / "That's completely understandable" / "Thank you for sharing" /
+   "your feelings are valid" / "safe space" / "on your journey" / "that resonates"
+5. Never assert an emotional state you are not confident in. If uncertain — ask, do not tell.
+6. Never introduce a person, event, or fact the user did not mention.
 7. Never give advice unless explicitly asked.
+8. Never use: "journey", "healing", "space", "valid", "resonate", "nurture", "empower"."""
 
-REASONING CONTEXT (use this to shape your response — do not quote it, do not reference it explicitly):
+USER_TURN_TEMPLATE = """REASONING CONTEXT (never quote this, let it inform your words invisibly):
 {scratchpad}
+
+MEMORY FROM PAST SESSIONS:
+{memory}
+
+ENTITY REGISTER (people and context in this conversation):
+{entities}
+
+RETRIEVED TECHNIQUE GUIDANCE (shapes HOW you respond, not WHAT you say):
+{exemplars}
 
 CONVERSATION HISTORY:
 {history}
 
-USER'S LATEST MESSAGE: {user_message}
+USER'S LATEST MESSAGE: "{user_message}"
 
-Now write your response. Be specific. Be human. No templates."""
+Write your response now. Be specific. Be human. No templates."""
 
 BANNED_PHRASES = [
     "i hear you",
@@ -47,21 +58,37 @@ BANNED_PHRASES = [
     "it's okay to feel this way",
     "i can imagine how",
     "that's completely understandable",
+    "thank you for sharing",
+    "thank you for trusting",
+    "i'm here for you",
+    "your feelings are valid",
+    "it's okay to",
+    "safe space",
+    "on your journey",
+    "the healing",
+    "that resonates",
+    "you are valid",
+    "so valid",
 ]
+
 
 def contains_banned_phrase(text: str) -> bool:
     lower = text.lower()
     return any(phrase in lower for phrase in BANNED_PHRASES)
 
+
 async def run_generation(
     user_message: str,
     history: list,
     scratchpad: str,
+    memory: str = "",
+    entities: str = "",
+    exemplars: str = "",
     attempt: int = 0
 ) -> AsyncGenerator[str, None]:
 
     if attempt >= 3:
-        yield "Something feels hard to put into words right now. What's been sitting with you most?"
+        yield "Something about what you said is hard to step past — what's been sitting with you most today?"
         return
 
     history_text = "\n".join(
@@ -69,33 +96,42 @@ async def run_generation(
         for m in history[:-1][-8:]
     )
 
-    prompt = SYSTEM_PROMPT.format(
+    user_turn = USER_TURN_TEMPLATE.format(
         scratchpad=scratchpad,
+        memory=memory if memory else "No previous session data.",
+        entities=entities if entities else "No entities tracked yet.",
+        exemplars=exemplars if exemplars else "No exemplars retrieved.",
         history=history_text if history_text else "This is the first message.",
         user_message=user_message
     )
 
+    collected_tokens = []
     full_response = ""
-    tokens = []
 
-    response = await model.generate_content_async(
-        prompt,
-        generation_config=genai.GenerationConfig(
-            max_output_tokens=300,
-            temperature=0.75,
-        ),
-        stream=True
+    stream = await client.chat.completions.create(
+        model=MODEL,
+        messages=[
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": user_turn}
+        ],
+        max_tokens=300,
+        temperature=0.75,
+        stream=True,
     )
 
-    async for chunk in response:
-        if chunk.text:
-            tokens.append(chunk.text)
-            full_response += chunk.text
+    async for chunk in stream:
+        token = chunk.choices[0].delta.content
+        if token:
+            collected_tokens.append(token)
+            full_response += token
 
     if contains_banned_phrase(full_response):
-        async for token in run_generation(user_message, history, scratchpad, attempt + 1):
+        async for token in run_generation(
+            user_message, history, scratchpad,
+            memory, entities, exemplars, attempt + 1
+        ):
             yield token
         return
 
-    for token in tokens:
+    for token in collected_tokens:
         yield token
